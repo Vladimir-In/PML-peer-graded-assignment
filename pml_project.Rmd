@@ -1,0 +1,120 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "Vladimir Inyaev"
+date: "2023-04-28"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Assignment Instructions
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways
+
+The goal of this project is to predict the manner in which they did the exercise, as represented in "classe" variable in data set.
+
+### Loading necessary packages
+```{r}
+library(caret)
+```
+
+## 1. Data preparation
+
+Training and test set are provided in the assignment. We assume that data is already downloaded in the workfolder.
+
+```{r}
+train <- read.csv("pml-training.csv") # training set
+test <- read.csv("pml-testing.csv") # test set
+```
+
+We can review the training data using str(train) and find out that the data set contains a lot of NA's, so before going on we should clean the data of missing values. Here we remove predictors with over 95% missing values, as well as some variables that don't look like good predictors because of their meaning:
+
+```{r}
+# Columns that  don't look like good predictors
+train <- subset(train, select = -c(X, 
+                          user_name, 
+                          raw_timestamp_part_1, 
+                          raw_timestamp_part_2, 
+                          cvtd_timestamp, 
+                          new_window, 
+                          num_window))
+
+# Missing data
+missing_data <- colSums(is.na(train))/nrow(train) < 0.95
+train <- train[,missing_data]
+```
+
+For further model analysis we can divide our training set into training and validation set and remove predictors with near-zero variance, since they don't contribute enough to prediction:
+```{r}
+set.seed(123)
+inTrain <- createDataPartition(y=train$classe, p=0.8, list=FALSE)
+train1 <- train[inTrain, ] # new training set
+validate1 <- train[-inTrain, ] # validation set
+
+# Near-zero values
+nzv <- nearZeroVar(train1)
+train2 <- train1[, -nzv]
+validate2 <- validate1[, -nzv]
+
+# Turn the classe variable into factor for further calculations
+train2$classe <- as.factor(train2$classe)
+validate2$classe <- as.factor(validate2$classe)
+```
+
+## 2. Fitting and analysis of random forests model
+As described in lectures, random forests and boosting models perform good enough for this kind of problems. For this assignment we can use both of them and compare the prediction efficiency using validation set. In both cases we use cross-validation approach to estimate best parameters and accuracy/error for the model.
+In this part we will try to fit and analyse a random forests model.
+```{r}
+fit_rf <- train(classe ~ ., data = train2, method = "rf", trControl = trainControl(method = "cv", number = 5))
+```
+
+Now we can check the model summary and accuracy
+```{r}
+fit_rf
+plot(fit_rf)
+fit_rf$finalModel
+```
+As we can see, with mtry = 2 accuracy is 0.9903304 with out-of bag estimate of error rate 0.57%. Additionally we can use our validation set to predict classe variable and compare it to actual values (with confusion matrix)
+```{r}
+# Calculate predicted values
+predict_rf <- predict(fit_rf, newdata = validate2)
+
+# Calculate and show the confusion matrix
+conf_rf <- confusionMatrix(predict_rf, validate2$classe)
+conf_rf
+```
+Accuracy equals 0.963 which is very high and makes random forests an attractive model for this case. Out-of-sample error is 0.0066. However, we should check if boosting can provide bette accuracy.
+
+## 3. Fitting and analysis of boosting model
+
+Just as before, we try to build a boosting model using our training set and check its performance
+```{r}
+# Fitting the model
+fit_gbm <- train(classe ~ ., data = train2, 
+                 method = "gbm", verbose=FALSE, trControl = trainControl(method = "cv", number = 5))
+
+# Model summary
+fit_gbm
+fit_gbm$finalModel
+plot(fit_gbm)
+```
+And again build and analyse the prediction on validation set:
+```{r}
+predict_gbm = predict(fit_gbm, newdata = validate2)
+conf_gbm <- confusionMatrix(predict_gbm, validate2$classe)
+conf_gbm
+```
+With boosting model accuracy equals 0.9623, which gives out-of-sample error 0.3773.
+
+### Conclusion
+Based on accuracy values we can conclude that random forests model provide better prediction quality than boosting, so we will pick it as our choice for the following work.
+
+### Prediction assignment
+For prediction quiz we have used our random forests model and obtained the following result:
+
+```{r}
+predict_rf1 <- predict(fit_rf, newdata = test)
+predict_rf1
+```
